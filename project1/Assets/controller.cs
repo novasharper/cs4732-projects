@@ -2,8 +2,8 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public class controller : MonoBehaviour {
-
+public class Controller : MonoBehaviour {
+    
 	// Use this for initialization
 	void Start () {
         Mesh mesh = GetComponent<MeshFilter>().mesh;
