@@ -36,6 +36,7 @@ public class FollowSpline : MonoBehaviour
     public Toggle catmullRomToggle;
     public Toggle bezierToggle;
     public Toggle pauseToggle;
+    public Text timeText;
 
     private List<Spline> splines;
     private List<GameObject> controlPoints;
@@ -48,6 +49,20 @@ public class FollowSpline : MonoBehaviour
 
     void Start()
     {
+        // Color the cube to allow for orientation reference
+        Mesh mesh = GetComponent<MeshFilter>().mesh;
+        Vector3[] vertices = mesh.vertices;
+
+        // create new colors array where the colors will be created.
+        Color[] colors = new Color[vertices.Length];
+
+        for (int i = 0; i < vertices.Length; i++)
+            colors[i] = new Color(vertices[i].x, vertices[i].y, vertices[i].z);
+
+        // assign the array of colors to the Mesh.
+        mesh.colors = colors;
+
+
         string conf = file.text;
 
         string[] lines = conf.Split('\n');
@@ -101,12 +116,18 @@ public class FollowSpline : MonoBehaviour
         {
             GameObject obj = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             obj.transform.position = pt.pos;
+            //obj.transform.localScale = new Vector3(3f, 3f, 3f);
+            //obj.AddComponent<UseWireframe>();
             controlPoints.Add(obj);
         }
     }
 
+
+    private List<GameObject> path = new List<GameObject>();
+    Vector3 last = Vector3.zero;
     void Update()
     {
+        timeText.text = string.Format("{0:0.00}", time);
         Spline curr = splines[splineNum];
 
         float adjTime = time / curr.speed;
@@ -125,12 +146,25 @@ public class FollowSpline : MonoBehaviour
         transform.position = loc;
         transform.rotation = new Quaternion(q.x, q.y, q.z, q.w);
 
-        if (!pauseToggle.isOn) time += Time.deltaTime * curr.speed;
+        if ((loc - last).magnitude > 0.6f)
+        {
+            GameObject obj = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            obj.transform.localScale = new Vector3(0.5f, 0.5f, 0.5f);
+            obj.transform.position = loc;
+            obj.GetComponent<MeshRenderer>().material.color = Color.cyan;
+            path.Add(obj);
+            last = loc;
+        }
+
+        if (!pauseToggle.isOn) time += Time.deltaTime;
 
         if (time > curr.span)
         {
             time -= curr.span;
             splineNum = (splineNum + 1) % splines.Count;
+            foreach (GameObject o in path) Destroy(o);
+            path.Clear();
+            last = loc;
         }
     }
 
@@ -139,6 +173,8 @@ public class FollowSpline : MonoBehaviour
     {
         if (!catmullRomToggle.isOn || sel == SplineType.CatmullRom) return;
         time = 0;
+        foreach (GameObject o in path) Destroy(o);
+        path.Clear();
         doSpline = CatmullRom;
         sel = SplineType.CatmullRom;
     }
@@ -148,6 +184,8 @@ public class FollowSpline : MonoBehaviour
     {
         if (!bezierToggle.isOn || sel == SplineType.Bezier) return;
         time = 0;
+        foreach (GameObject o in path) Destroy(o);
+        path.Clear();
         doSpline = Bezier;
         sel = SplineType.Bezier;
     }
@@ -178,32 +216,21 @@ public class FollowSpline : MonoBehaviour
     Vector3 Bezier(float u, int segNum)
     {
         Spline spline = splines[splineNum];
-        List<ControlPoint> segs = spline.segs;
+        List<Vector3> segs = spline.segs.Select(seg => seg.pos).ToList();
         int len = spline.len;
-        float t = (segNum + u) / 3;
-        segNum = Mathf.FloorToInt(t);
-        u = t - segNum;
 
-        List<Vector3> a, b;
         
-        a = new List<Vector3>();
-        for (int i = 0; i < 4; i++)
-        {
-            a.Add(spline.segs[(segNum * 3 + i) % len].pos);
-        }
+        float usq = u * u;
+        float ucb = usq * u;
 
-        while(a.Count > 1)
-        {
-            b = new List<Vector3>();
-            for(int i = 0; i < a.Count - 1; i++)
-            {
-                b.Add(Lerp(a[i], a[i + 1], u));
-            }
-            a.Clear();
-            a = b;
-        }
+        float c0 = Mathf.Pow(1 - u, 3);
+        float c1 = ( 3f * ucb - 6f * usq +          4f);
+        float c2 = (-3f * ucb + 3f * usq + 3f * u + 1f);
+        float c3 = (      ucb                         );
 
-        return a[0];
+        return (c0 * segs[segNum] + c1 * segs[(segNum + 1) % len]
+             + c2 * segs[(segNum + 2) % len]
+             + c3 * segs[(segNum + 3) % len]) / 6f;
     }
 
     public static Vector4 EulerToQuat(float x, float y, float z)
