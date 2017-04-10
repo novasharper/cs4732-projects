@@ -25,8 +25,8 @@
 
 // CONSTANTS
 
-const int numFrames = 9000; // Number of frames to generate.
 const int kfInterval = 300; // Interval between keyframes
+const int numFrames = 10 * kfInterval; // Number of frames to generate.
 
 // LOCAL VARIABLES
 
