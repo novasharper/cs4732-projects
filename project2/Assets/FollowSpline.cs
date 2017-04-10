@@ -12,6 +12,8 @@
  * --------      ----------    ----------
  * 01.00         2017/03/27    pllong
  * First release.
+ * 01.01         2017/04/03    pllong
+ * Added in conversion from degrees to radians in EulerToQuat
  */
 
 
@@ -49,21 +51,11 @@ public class FollowSpline : MonoBehaviour
     }
 
     // Toggle buttons
-    public Toggle catmullRomToggle;
-    public Toggle bezierToggle;
     public Toggle pauseToggle;
     public Text timeText;
 
-    // Material used for breadcrumbs
-    public Material breadCrumbMaterial;
-
-    // Material used for control points
-    public Material controlPointMaterial;
-
     // List of splines
     private List<Spline> splines;
-    // List of control point objects
-    private List<GameObject> controlPoints;
     // Current spline function
     private SplineFn doSpline;
     // Current spline type
@@ -75,19 +67,6 @@ public class FollowSpline : MonoBehaviour
 
     void Start()
     {
-        // Color the cube to allow for orientation reference
-        Mesh mesh = GetComponent<MeshFilter>().mesh;
-        Vector3[] vertices = mesh.vertices;
-
-        // create new colors array where the colors will be created.
-        Color[] colors = new Color[vertices.Length];
-
-        for (int i = 0; i < vertices.Length; i++)
-            colors[i] = new Color(vertices[i].x, vertices[i].y, vertices[i].z);
-
-        // assign the array of colors to the Mesh.
-        mesh.colors = colors;
-
         // Load spline config
         string conf = file.text;
 
@@ -103,7 +82,6 @@ public class FollowSpline : MonoBehaviour
         int o = 1;
 
         splines = new List<Spline>(); // Splines
-        controlPoints = new List<GameObject>(); // Displayed control points
 
         // Parse each spline
         for (int i = 0; i < numSplines; i++)
@@ -134,51 +112,31 @@ public class FollowSpline : MonoBehaviour
             // Seek to next spline
             o += 2 * (1 + numCoords);
         }
-
-        // Display control points for current spline
-        LoadSpline();
     
         // Start by using Catmull-Rom method
         UseCatmullRom();
     }
 
-    // Update control points displayed
-    void LoadSpline()
-    {
-        List<ControlPoint> pts = splines[splineNum].segs;
-        // Clear control points
-        foreach (GameObject obj in controlPoints)
-        {
-            Destroy(obj);
-        }
-
-        controlPoints.Clear();
-
-        // Display control points
-        foreach(ControlPoint pt in pts)
-        {
-            GameObject obj = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            obj.transform.position = pt.pos;
-            obj.GetComponent<Renderer>().material = controlPointMaterial;
-            controlPoints.Add(obj);
-        }
-    }
-
-
-    private List<GameObject> path = new List<GameObject>();
-    Vector3 last = Vector3.zero;
+    int toggleDone = 0;
     void Update()
     {
         // Get current spline
         Spline curr = splines[splineNum];
 
-        // Display time in current iteration of spline
-        timeText.text = string.Format("{0:00.00}%", 100 * time / curr.span);
-
         // Get progress along spline
         float adjTime = Mathf.Clamp(time * curr.len / curr.span, 0, curr.len);
         int segNum = Mathf.FloorToInt(adjTime);
         float u = adjTime - segNum;
+
+//        if (u < 0.05 && segNum != toggleDone)
+//        {
+//            toggleDone = segNum;
+//            pauseToggle.isOn = true;
+//        }
+
+        // Display time in current iteration of spline
+        if (timeText != null)
+            timeText.text = string.Format("{0:00.00}%", 100 * time / curr.span);
 
         // Calculate position on spline
         Vector3 loc = doSpline(u, segNum);
@@ -190,19 +148,8 @@ public class FollowSpline : MonoBehaviour
             u);
 
         // Update transform
-        transform.position = loc;
-        transform.rotation = new Quaternion(q.x, q.y, q.z, q.w);
-
-        // Leave breadcrumbs
-        if ((loc - last).magnitude > 0.6f)
-        {
-            GameObject obj = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            obj.transform.localScale = new Vector3(0.5f, 0.5f, 0.5f);
-            obj.transform.position = loc;
-            obj.GetComponent<Renderer>().material = breadCrumbMaterial;
-            path.Add(obj);
-            last = loc;
-        }
+        transform.localPosition = loc;
+        transform.localRotation = new Quaternion(q.x, q.y, q.z, q.w);
 
         // Move if not paused
         if (!pauseToggle.isOn) time += Time.deltaTime;
@@ -214,22 +161,14 @@ public class FollowSpline : MonoBehaviour
             time = 0;
             // Move to next spline
             splineNum = (splineNum + 1) % splines.Count;
-            // Clear breadcrumbs
-            foreach (GameObject o in path) Destroy(o);
-            path.Clear();
-            // Update control points displayed
-            LoadSpline();
-            last = loc;
         }
     }
 
     // Toggle using Catmull-Rom spline
     public void UseCatmullRom()
     {
-        if (!catmullRomToggle.isOn || sel == SplineType.CatmullRom) return;
+        if (sel == SplineType.CatmullRom) return;
         time = 0;
-        foreach (GameObject o in path) Destroy(o);
-        path.Clear();
         doSpline = CatmullRom;
         sel = SplineType.CatmullRom;
     }
@@ -237,10 +176,8 @@ public class FollowSpline : MonoBehaviour
     // Toggle using B-Spline
     public void UseBezier()
     {
-        if (!bezierToggle.isOn || sel == SplineType.Bezier) return;
+        if (sel == SplineType.Bezier) return;
         time = 0;
-        foreach (GameObject o in path) Destroy(o);
-        path.Clear();
         doSpline = Bezier;
         sel = SplineType.Bezier;
     }
@@ -309,13 +246,14 @@ public class FollowSpline : MonoBehaviour
     // See https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles
     public static Vector4 EulerToQuat(Vector3 e)
     {
+        // Convert to radians
         e = e * Mathf.PI / 180;
         float t0 = Mathf.Cos(e.z * 0.5f);
         float t1 = Mathf.Sin(e.z * 0.5f);
-        float t2 = Mathf.Cos(e.x * 0.5f);
-        float t3 = Mathf.Sin(e.x * 0.5f);
-        float t4 = Mathf.Cos(e.y * 0.5f);
-        float t5 = Mathf.Sin(e.y * 0.5f);
+        float t2 = Mathf.Cos(e.y * 0.5f);
+        float t3 = Mathf.Sin(e.y * 0.5f);
+        float t4 = Mathf.Cos(e.x * 0.5f);
+        float t5 = Mathf.Sin(e.x * 0.5f);
 
         float x_ = t0 * t3 * t4 - t1 * t2 * t5;
         float y_ = t0 * t2 * t5 + t1 * t3 * t4;
