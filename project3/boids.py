@@ -19,7 +19,7 @@ from cocos.scene import Scene
 from cocos.director import director
 from enum import Enum
 import math
-from random import randint
+from random import randint, random
 import itertools
 
 # (COLOR, NAME, FLEE, CHASE)
@@ -37,10 +37,9 @@ check = list(itertools.product(range(*bounds), range(*bounds)))
 class BoidController(Action):
     scheduled_to_remove = False
     _done = False
-    _drag = 0.1
-    _force = 5
-    _cohesion = 10
-    _separation = 10
+    _drag = 0.03
+    _force = 3
+    _flock = 6
     def __init__(self, _id, _type, _start):
         super().__init__()
         # Window dimensions
@@ -62,6 +61,17 @@ class BoidController(Action):
     def set_type(self, _new_type):
         if _new_type == self._type:
             return
+        self.target._grid[self._grid][self._type].discard(self)
+        self.target._grid[self._grid][_new_type].add(self)
+        self._type = _new_type
+    
+    def set_grid(self, _new_grid):
+        if _new_grid == self._grid:
+            return
+        self.target._grid[self._grid][self._type].discard(self)
+        self.target._grid[_new_grid][self._type].add(self)
+        self._grid = _new_grid
+        
     
     def force(self, targets):
         _dvx, _dvy = (0, 0)
@@ -71,13 +81,16 @@ class BoidController(Action):
             dist = math.sqrt(dx ** 2 + dy ** 2)
             if dist > sensing[2]:
                 continue
-            _dvx += dx * self._force / sensing[0]
-            _dvy += dy * self._force / sensing[0]
+            _dvx += self._force * (dx / sensing[0])
+            _dvy += self._force * (dy / sensing[0])
         return _dvx, _dvy
 
     def flock(self, targets):
         _dvx, _dvy = (0, 0)
+        _avx, _avy = (0, 0)
         for target in targets:
+            _avx += target._x
+            _avy += target._y
             if hash(target) == hash(self):
                 continue
             dx = (self._x - target._x)
@@ -85,14 +98,16 @@ class BoidController(Action):
             dist = math.sqrt(dx ** 2 + dy ** 2)
             if dist < 1:
                 continue
-            # Separation
-            if dist < 2 * sensing[0]:
-                _dvx += dx * (1.5 - self._separation / sensing[0])
-                _dvx += dy * (1.5 - self._separation / sensing[0])
-            # Cohesion
-            if dist > 2 * sensing[0]:
-                _dvx += dx * self._cohesion / sensing[0]
-                _dvx += dy * self._cohesion / sensing[0]
+            _dvx += self._flock * math.copysign((2 - abs(dx) / sensing[0]), dx)
+            _dvy += self._flock * math.copysign((2 - abs(dy) / sensing[0]), dy)
+        
+        if len(targets) > 0:
+            dx = self._x - _avx / len(targets)
+            dy = self._y - _avy / len(targets)
+            _dvx += self._flock * dx / sensing[0] * 0.5
+            _dvy += self._flock * dy / sensing[0] * 0.5
+
+
         
         return _dvx, _dvy
 
@@ -128,10 +143,7 @@ class BoidController(Action):
             self._y -= self._win_h
         # Find new grid cell
         _grid = self.get_grid()
-        if self not in self.target._grid[_grid][self._type]:
-            self.target._grid[self._grid][self._type].discard(self)
-            self.target._grid[_grid][self._type].add(self)
-            self._grid = _grid
+        self.set_grid(_grid)
         self.target.position = (self._x, self._y)
         self.target._type = self._type
     
