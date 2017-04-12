@@ -142,7 +142,7 @@ class BoidController(Action):
 class Boid(Sprite):
     """ This is the base class for defining a Boid """
     def __init__(self, _id, _start):
-        super().__init__('boid.png', scale=0.5)
+        super().__init__('boid2.png', scale=0.5)
         self._type = _id % 3
         self.do(BoidController(_id, self._type, _start))
 
