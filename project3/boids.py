@@ -1,6 +1,6 @@
 #!/bin/env python3
 """
-Module         : test.py
+Module         : boids.py
 Author         : Patrick Long
 Email          : pllong@wpi.edu
 Course         : CS 4732
@@ -17,7 +17,6 @@ from cocos.text import Label
 from cocos.layer import ColorLayer, Layer
 from cocos.scene import Scene
 from cocos.director import director
-from enum import Enum
 import math
 from vector2d import Vector2 as v2d
 from vector2d import limit
@@ -31,10 +30,13 @@ boid_info = (
     ((0, 0, 255), 'BLUE', 1, 0)
 )
 
-spawn_padding = 50
-obstacle_radius = 96
-cell_size = 64
-arena_size = 900
+spawn_padding = 25   # Padding for spawnboxex
+obstacle_radius = 96 # Radius of obstacle
+cell_size = 64       # Size of cell
+arena_size = 900     # Size of "arena"
+
+# Spawn position for each boid is
+# (rand(b1, b2), rand(b1, b2)) * bounds[index] + center
 box_offsets = (
     (-1, -1),
     (1, -1),
@@ -43,15 +45,17 @@ box_offsets = (
 )
 
 class BoidController(Action):
+    """ Controller for boid """
+    # Stuff to ensure action is not removed as terminated
     scheduled_to_remove = False
     _done = False
-    _max_f = 60.0
-    _speed_cap = 100.0
-    _sensing_range = 256
-    _min_dist = 48
+    _max_f = 60.0        # Maximum force applied to boid
+    _speed_cap = 100.0   # Maximum speed
+    _sensing_range = 256 # Maximum sensing range
+    _min_dist = 48       # Minimum ideal distance b/n boids
     def __init__(self, _id, _type, _start):
         super().__init__()
-        # Window dimensions
+        # Window + grid dimensions
         self._win_w, self._win_h = director.get_window_size()
         self._grid_w = int(math.ceil(self._win_w / cell_size))
         self._grid_h = int(math.ceil(self._win_h / cell_size))
@@ -65,40 +69,55 @@ class BoidController(Action):
         self._a = v2d(0, 0)
         # Boid ID
         self._id = _id
-        # Generate list of 
+        # Generate list of grid offsets to check
         radius = int(math.ceil(self._sensing_range / cell_size))
         bounds = (-radius, radius + 1)
         self.check = list(itertools.product(range(*bounds), range(*bounds)))
 
     def set_type(self, _new_type):
+        """ Update type of boid """
+        # Check to see if type is changing
         if _new_type == self._type:
             return
+        # Move from current boid set to boid set for new type
         self.target._grid[self._grid][self._type].discard(self)
         self.target._grid[self._grid][_new_type].add(self)
+        # Update type
         self._type = _new_type
     
     def calc_grid(self):
+        """ Calculate position on grid """
         return int(self._posn.x / cell_size), int(self._posn.y / cell_size)
 
     def update_grid(self):
+        """ Update the grid of boids """
+        # Check to see if we have moved squares
         _new_grid = self.calc_grid()
         if _new_grid == self._grid:
             return
+        # Remove from old square and add to new square
         self.target._grid[self._grid][self._type].discard(self)
         self.target._grid[_new_grid][self._type].add(self)
+        # Update coordinates
         self._grid = _new_grid
     
 
     def obstacle_force(self, obs):
+        """ Get 'avoidance' force applied by obstacle """
         v = self._v.normalized()
+        # Look ahead proportional to velocity
         look_ahead = self._min_dist * 2 * self._v.magnitude() / self._speed_cap
         ahead = self._posn + v.normalized() * look_ahead
+        # Force is applied from obstacle in direction to future position
         diff = ahead - obs._posn
+        # We won't collide, so it's okay
         if abs(diff) > obs.radius * 1.2:
             return v2d(0, 0)
+        # Magnitude of force is maximum force
         return self._max_f * diff.normalize()
 
     def avoid_obstacles(self):
+        """ Get acceleration due to avoiding obstacles """
         _a = v2d(0, 0)
         _count = 0
 
@@ -110,7 +129,7 @@ class BoidController(Action):
             if 0 < dist < self._sensing_range: # Is it in range?
                 # Get force exherted by obstacle
                 _f = self.obstacle_force(obs)
-                if _f.magnitude() > 1:
+                if _f.magnitude() > 1: # Is the force significant?
                     _a += _f
                     _count += 1
         
@@ -168,11 +187,16 @@ class BoidController(Action):
                 count += 1
 
                 diff.normalize()
+                # If too close, scale separation factor
                 if dist < self._min_dist:
                     diff /= (dist / self._min_dist)
                 
+                # Separation driven by proximity of flock members
                 sep += diff
+                # Cohesion is steering towards average flock location
                 coh += target._posn
+                # Alignment is a force acting in average velocity
+                # of the flock
                 aln += target._v
 
         if count > 0:
@@ -188,6 +212,7 @@ class BoidController(Action):
             aln -= self._v
             limit(aln, self._max_f)
 
+            # Calculate the coherence force (flocking attractor)
             coh /= count
             coh = self._steer(coh, True)
             
@@ -195,40 +220,49 @@ class BoidController(Action):
         return sep * 1.5 + coh + aln
 
     def _steer(self, dest, damp=False):
-        dest -= self._posn
-        dist = abs(dest)
-        if dist > 0:
-            dest.normalize()
+        """ Steer towards destination """
+        diff = dest - self._posn
+        dist = abs(diff)
+        if dist > 0: # Not at target
+            diff.normalize()
             # Damp coherence when it approaches min dist
             if damp and (dist < self._min_dist):
-                dest *= self._speed_cap * 0.1
+                diff *= self._speed_cap * 0.1
             else:
-                dest *= self._speed_cap
-            dest -= self._v
-            limit(dest, self._max_f)
+                diff *= self._speed_cap
+            # Calculate force needed to aim towards destination
+            diff -= self._v
+            limit(diff, self._max_f)
         else:
-            dest = v2d(0, 0)
-        return dest
+            diff = v2d(0, 0)
+        return diff
 
     def think(self):
+        """ Determine acceleration """
+        # Sets of boids in range (separated by type)
         _boids = [set(), set(), set()]
+        # Check all grid squares in reach of radius
         _grid = self._grid
         for dx, dy in self.check:
             _x, _y = (_grid[0] + dx, _grid[1] + dy)
+            # If the coordinates are on the grid, add occupants to list of boids
             if 0 <= _x < self._grid_w and 0 <= _y < self._grid_h:
                 targets = self.target._grid[_x, _y]
                 _boids[0] |= targets[0]
                 _boids[1] |= targets[1]
                 _boids[2] |= targets[2]
+        # Determine forces acting upon boid
         _flee  = self.force(_boids[boid_info[self._type][2]])
         _chase = self.force(_boids[boid_info[self._type][3]])
         _flock = self.flock(_boids[self._type])
         _obs   = self.avoid_obstacles()
+        # F = ma, mass = 1
         self._a = _chase - _flee + _flock + _obs
     
     def check_borders(self):
-        # Wrap, we are on a donut
+        """ Wrap, we are on a donut """
         # Go Homer!
+        # https://en.wikipedia.org/wiki/Torus#Flat_torus
         if self._posn.x < 0:
             self._posn.x += self._win_w
         elif self._posn.x > self._win_w:
@@ -265,30 +299,39 @@ class Boid(Sprite):
     """ This is the base class for defining a Boid """
     def __init__(self, _id, _start):
         super().__init__('boid2.png', scale=0.5)
-        self._type = (_id + randint(0, 2)) % 3
+        # Type is a hash of ID
+        self._type = _id % 3
+        # Add Controller
         self.do(BoidController(_id, self._type, _start))
 
     def draw(self):
+        # Update color
         self.color = boid_info[self._type][0]
         super().draw()
     
     def on_enter(self):
-        self._grid = self.parent._grid
+        """ Handle parent scene entered """
+        # Obtain pointer to Parent Grid + Obstacles
+        self._grid      = self.parent._grid
         self._obstacles = self.parent._obstacles
         super().on_enter()
 
 class Obstacle(Sprite):
     """ This will be the obstacle in the center """
     def __init__(self, location=(arena_size/2,arena_size/2), radius=obstacle_radius):
-        super().__init__('rock.png')
+        super().__init__('rock.png') # Sprite is a rock (Unlimited Stock Art)
+        # Set draw position
         self.position = location
+        # Set position for use in collision detection
         self._posn = v2d(*location)
+        # Set radius, scale derives from radius
         self.radius = radius
         self.scale = 2 * radius / self.width
     
     def on_enter(self):
-        self._obstacles = self.parent._obstacles
-        self._obstacles.add(self)
+        """ Handle parent scene entered """
+        # Add self to list of obstacles
+        self.parent._obstacles.add(self)
         super().on_enter()
 
 class BoidLayer(ColorLayer):
@@ -309,9 +352,10 @@ class BoidLayer(ColorLayer):
         self._obstacles = set()
 
         # Bounds for spawning boids
-        box_sz = (obstacle_radius + spawn_padding / 2,
-            (arena_size + spawn_padding) / 2)
+        box_sz = (obstacle_radius + spawn_padding,
+            arena_size / 2 - spawn_padding)
 
+        # Only one obstace
         obstacle = Obstacle()
         self.add(obstacle)
 
