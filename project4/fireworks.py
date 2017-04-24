@@ -60,7 +60,7 @@ class Particle:
         self.X = np.array([0, 0, 0])
         self.V = np.array([0, 0, 0])
         self.vertex_list.colors         = (1, 1, 1, 0) * 4
-        self.vertex_list.texture_coords = texture_coords
+        self.vertex_list.tex_coords = texture_coords
         self.callback = None
         self.is_alive = self._is_alive
 
