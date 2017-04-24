@@ -44,83 +44,63 @@ def update_rot():
 update_rot()
 
 sprite = pyglet.resource.image('Particle.png')
-groups = [
-    pyglet.sprite.SpriteGroup(sprite.texture, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA),
-    pyglet.sprite.SpriteGroup(sprite.texture, GL_SRC_ALPHA, GL_DST_ALPHA)
-]
+sprite_group = pyglet.sprite.SpriteGroup(sprite.texture, GL_SRC_ALPHA, GL_DST_ALPHA)
 
 
-class Particle(object):
-    """Base particle class, used to show a shining particle
-    
-    Parameters:
+class Particle:
+    def __init__(self, batch):
+        self.life = 0.0
+        self.drag = 1.0
+        self.decay = False
+        self.g = np.array([0, -0.98, 0])
+        self.vertex_list = batch.add(
+            4, GL_TRIANGLE_STRIP, sprite_group,
+            'v3f', 'c4f', 't2f'
+        )
+        self.X = np.array([0, 0, 0])
+        self.V = np.array([0, 0, 0])
+        self.vertex_list.colors         = (1, 1, 1, 0) * 4
+        self.vertex_list.texture_coords = texture_coords
+        self.callback = None
+        self.is_alive = self._is_alive
 
-    add     (set)         : Set of all particles to add this turn
-    discard (set)         : Set of all particles to delete this turn
-    start   (numpy.Array) : Initial position
-    v0      (numpy.Array) : Initial velocity
-    color   (tuple)       : Particle color (RGB)
-    decay   (float)       : Scaling factor for rate of decay
-    """
-    show_fade = False
-    def __init__(self, add, discard, start, v0, color, decay=-1):
-        self.add = add
-        self.discard = discard
-        self.life = 1.0
-        self.drag_c = 1.0
-        if decay > 0:
-            self.fade = (0.2 +  0.8 * random.random()) * decay
-            self.drag_c = 0.9 + 0.06 * random.random()
-            self.show_fade = True
-            self.scale = 0.5
-        self.X = start # Initial position
-        self.V = v0    # Velocity vector
-        self.g = np.array([0, -0.08, 0])
-        self.batch = pyglet.graphics.Batch()
-        if self.show_fade:
-            self.group = groups[1]
+    def init_particle(self, x0, v0, color, is_alive=None, callback=None, decay=False):
+        self.X = x0
+        self.V = v0
+        self.decay = decay
+        if callback is not None:
+            self.callback = callback
+        if decay:
+            self.fade = 0.2  +  0.8 * random.random()
+            self.drag = 0.04 + 0.06 * random.random()
+        if is_alive is not None:
+            self.is_alive = is_alive
         else:
-            self.group = groups[0]
-        self.vertex_list = self.batch.add(4, GL_TRIANGLE_STRIP, self.group,
-            'v3f', 'c4f', ('t2f', texture_coords) )
-        self.update_position()
-        self.vertex_list.colors[0:16] = [*color, 1] * 4
-        self.add.add(self)
+            self.is_alive = self._is_alive
 
-    def update(self):
-        # Update position using velocity
-        self.X += self.V / 100
-        if self.show_fade:
-            # Apply drag
-            self.V *= self.drag_c
-            self.life -= self.fade
-            self.vertex_list.colors[3::4] = [self.life] * 4
-        # Apply Gravity
-        self.V += self.g
 
-    def update_position(self):
-        self.vertex_list.vertices[0:12] = (self.X + offset_l).flatten()
-
-    def is_alive(self):
-        return self.life > 0
-
-    def draw(self):
-        if self.is_alive():
-            self.update_position()
-            if self.show_fade:
-                glDisable(GL_DEPTH_TEST)
-            self.batch.draw()
-            if self.show_fade:
-                glEnable(GL_DEPTH_TEST)
+    def update(self, dt):
+        if self.is_alive(self.X, self.V, self.life):
+            # Update position using velocity
+            self.X += self.V * dt
+            if self.decay:
+                # Apply drag
+                self.V *= (1 - self.drag * dt)
+                self.life -= self.fade * dt
+                self.vertex_list.colors[3::4] = [self.life] * 4
+            # Apply Gravity
+            self.V += self.g * dt
+            self.vertex_list.vertices[0:12] = (self.X + offset_l).flatten()
         else:
-            self.die()
+            self.vertex_list.colors[3::4] = [0, 0, 0, 0]
     
-    def die(self):
-        self.discard.add(self)
+    @classmethod
+    def _is_alive(X, V, life):
+        return life > 0
 
 
-class Firework(Particle):
-    def __init__(self, add, discard):
+class Firework:
+    def __init__(self, id, particles, callback):
         # Generate
         start = np.array([
             random.uniform(-half_side, half_side),
@@ -144,28 +124,46 @@ class Firework(Particle):
         
         color = random.choice(COLORS)
 
-        super().__init__(add, discard, start, v0, color)
+        self.particles = particles
+        self.id = id
+        # Figure out way to do callback
+        def is_alive(X, V, life):
+            return X[1] < 2.5
+        self.particles[0].init_particle(start, v0, color, is_alive, self.gen_callback())
+        self.exploded = False
+        self.done = callback
 
-    # Determine if firework is still alive
-    def is_alive(self):
-        return self.X[1] < 2 and self.V[1] >= 1
+    def gen_callback(self):
+        def firework_fizzle(self):
+            self.num_particles -= 1
+            if self.num_particles <= 0:
+                self.done()
 
-    def die(self):
-        # Choose a random explosion color
-        color = random.choice(COLORS)
-        # Firework explodes into 100 particles
-        num_particles = random.randint(15, 71)
-        for i in range(num_particles):
-            # Generate random particle speed
-            speed = random.uniform(3,6)
-            # Rate of particle decay is proportional to particle speed
-            decay = speed / 40.0
-            # Start at same x position as firework
-            X0 = np.copy(self.X)
-            # Initial velocity is random ve
-            v0 = np.random.uniform(-0.5, 0.5, 3) * speed + self.V
-            Particle(self.add, self.discard, X0, v0, color, decay)
-        super().die()
+        def firework_explode(self):
+            # Choose a random explosion color
+            color = random.choice(COLORS)
+            # Firework explodes into 100 particles
+            self.num_particles = random.randint(15, 71)
+            for i in range(self.num_particles):
+                # Generate random particle speed
+                speed = random.uniform(3,6)
+                # Rate of particle decay is proportional to particle speed
+                decay = speed / 40.0
+                # Start at same x position as firework
+                X0 = np.copy(self.X)
+                # Initial velocity is random ve
+                v0 = np.random.uniform(-0.5, 0.5, 3) * speed + self.V
+                self.particles[i].init_particle(X0, v0, color, lambda: firework_fizzle(self), True)
+            self.exploded = True
+        return lambda: firework_explode(self)
+    
+    def update(self, dt):
+        if not self.exploded:
+            self.particles[0].update(dt)
+        else:
+            for i in range(self.num_particles):
+                self.particles[i].update(dt)
+
 
 class Window(pyglet.window.Window):
     def __init__(self, *args,**kwargs):
@@ -173,16 +171,21 @@ class Window(pyglet.window.Window):
         self.set_minimum_size(300, 200)
         pyglet.clock.schedule(self.update)
         self.frame = 0
-        self.fireworks = set()
-        self.f_add = set()
-        self.f_discard = set()
+        self.inactive = set()
         self.launchpad = wf.Wavefront('launchpad.obj')
         self.fs = False
         self.camera_loc = np.array([[0.0], [1.0], [-7.0]])
         self.up = [0.0, 1.0, 0.0]
-        self.rate = 30.0 * (math.pi / 180)
+        self.rate = 6.0 * (math.pi / 180)
         self.X0 = np.array([[0.0], [cam_h], [-cam_r]])
         self.center = center.tolist()
+        self.particles = [None] * 10
+        self.fireworks = []
+        for i in range(10):
+            batch = pyglet.graphics.Batch()
+            particles = [Particle(batch) for i in range(100)]
+            self.particles[i] = (batch, particles)
+            self.inactive.add(i)
 
     def on_resize(self, width, height):
         glViewport(0, 0, width, height)
@@ -191,6 +194,18 @@ class Window(pyglet.window.Window):
         gluPerspective(60., float(width)/height, 0.05, 1000)
         glMatrixMode(GL_MODELVIEW)
         return True
+
+    def destroy_firework(self, i):
+        pass
+
+    def new_firework(self):
+        try:
+            i = self.inactive.pop()
+            batch, particles = self.particles[i]
+            firework = Firework(i, particles, None)
+            return True
+        except:
+            return False
 
     def on_draw(self):
         glLoadIdentity()
@@ -211,7 +226,7 @@ class Window(pyglet.window.Window):
 
         # Randomly spawn fireworks
         if self.frame % random.randint(30, 51) == 1:
-            Firework(self.f_add, self.f_discard)
+            self.new_firework()
 
         # Draw the landscape
         self.launchpad.draw()
@@ -222,17 +237,13 @@ class Window(pyglet.window.Window):
         glDisable(GL_COLOR_MATERIAL)
 
         # Render particles
-        for i in self.fireworks:
-            i.draw()
+        for batch, particles in self.particles:
+            batch.draw()
 
     def update(self,dt):
         global rotation
         global rotation_m
         self.frame += 1
-        self.fireworks |= self.f_add
-        self.fireworks -= self.f_discard
-        self.f_add.clear()
-        self.f_discard.clear()
         for i in self.fireworks:
             i.update()
         rotation += self.rate * dt
