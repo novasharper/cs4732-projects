@@ -76,7 +76,7 @@ class Particle:
         if is_alive is not None:
             self.is_alive = is_alive
         else:
-            self.is_alive = self._is_alive
+            self.is_alive = Particle._is_alive
 
 
     def update(self, dt):
@@ -93,14 +93,16 @@ class Particle:
             self.vertex_list.vertices[0:12] = (self.X + offset_l).flatten()
         else:
             self.vertex_list.colors[3::4] = [0, 0, 0, 0]
+            self.life = 0
+            self.is_alive = Particle._is_alive
     
-    @classmethod
+    @staticmethod
     def _is_alive(X, V, life):
         return life > 0
 
 
 class Firework:
-    def __init__(self, id, particles, callback):
+    def __init__(self, id, particles):
         # Generate
         start = np.array([
             random.uniform(-half_side, half_side),
@@ -131,13 +133,13 @@ class Firework:
             return X[1] < 2.5
         self.particles[0].init_particle(start, v0, color, is_alive, self.gen_callback())
         self.exploded = False
-        self.done = callback
+        self.done = False
 
     def gen_callback(self):
         def firework_fizzle(self):
             self.num_particles -= 1
             if self.num_particles <= 0:
-                self.done()
+                self.done = True
 
         def firework_explode(self):
             # Choose a random explosion color
@@ -158,14 +160,17 @@ class Firework:
         return lambda: firework_explode(self)
     
     def update(self, dt):
-        if not self.exploded:
-            self.particles[0].update(dt)
-        else:
-            for i in range(self.num_particles):
-                self.particles[i].update(dt)
+        if not self.done:
+            if not self.exploded:
+                self.particles[0].update(dt)
+            else:
+                for i in range(self.num_particles):
+                    self.particles[i].update(dt)
 
 
 class Window(pyglet.window.Window):
+    __max_fireworks = 10
+    __max_particles = 100
     def __init__(self, *args,**kwargs):
         super(Window, self).__init__(*args,**kwargs)
         self.set_minimum_size(300, 200)
@@ -179,12 +184,11 @@ class Window(pyglet.window.Window):
         self.rate = 6.0 * (math.pi / 180)
         self.X0 = np.array([[0.0], [cam_h], [-cam_r]])
         self.center = center.tolist()
-        self.particles = [None] * 10
-        self.fireworks = []
-        for i in range(10):
+        self.particles = [None] * self.__max_fireworks
+        for i in range(self.__max_fireworks):
             batch = pyglet.graphics.Batch()
-            particles = [Particle(batch) for i in range(100)]
-            self.particles[i] = (batch, particles)
+            particles = [Particle(batch) for i in range(self.__max_particles)]
+            self.particles[i] = [batch, particles, None]
             self.inactive.add(i)
 
     def on_resize(self, width, height):
@@ -195,16 +199,15 @@ class Window(pyglet.window.Window):
         glMatrixMode(GL_MODELVIEW)
         return True
 
-    def destroy_firework(self, i):
-        pass
-
     def new_firework(self):
         try:
             i = self.inactive.pop()
-            batch, particles = self.particles[i]
-            firework = Firework(i, particles, None)
+            batch, particles, _ = self.particles[i]
+            self.particles[i][2] = Firework(i, particles)
+            #print("ADDED", i)
             return True
-        except:
+        except Exception as e:
+            #print(e)
             return False
 
     def on_draw(self):
@@ -237,15 +240,19 @@ class Window(pyglet.window.Window):
         glDisable(GL_COLOR_MATERIAL)
 
         # Render particles
-        for batch, particles in self.particles:
-            batch.draw()
+        for i in range(self.__max_fireworks):
+            if i not in self.inactive:
+                self.particles[i][0].draw()
 
-    def update(self,dt):
+    def update(self, dt):
         global rotation
         global rotation_m
         self.frame += 1
-        for i in self.fireworks:
-            i.update()
+        for i in range(self.__max_fireworks):
+            if i not in self.inactive:
+                self.particles[i][2].update(dt)
+                if self.particles[i][2].done:
+                    self.particles[i][2] = None
         rotation += self.rate * dt
         if rotation > 2 * math.pi:
             rotation -= 2 * math.pi
