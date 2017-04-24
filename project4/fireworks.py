@@ -183,6 +183,6 @@ class Window(pyglet.window.Window):
 
 
 if __name__ =='__main__':
-    window = Window(width = 800, height = 600, caption = 'fireworks')
+    window = Window(width = 800, height = 600, caption = 'fireworks', resizable=True)
     pyglet.app.run()
     
