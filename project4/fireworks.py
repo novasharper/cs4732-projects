@@ -20,11 +20,12 @@ offset = np.array([
     [ 1, -1, 0],
     [ 1,  1, 0],
     [-1,  1, 0]
-]) * 0.4
+])
 offset_l = np.copy(offset)
 
 half_side = 0.1
 center = np.array([-0.5, 0.0, -1.0])
+unit = 50.0
 cam_h = 0.75
 cam_r = 4.0
 rotation = 0
@@ -41,50 +42,65 @@ update_rot()
 class Particle:
     def __init__(self, img, batch):
         # Physics
-        self._x = np.array([0, 0, 0])
-        self._vel = np.array([0, 0, 0])
-        self._grav = np.array([0, -0.98, 0])
+        self._x    = np.array([0.0,  0.0,  0.0])
+        self._vel  = np.array([0.0,  0.0,  0.0])
+        self._grav = np.array([0.0, -9.8,  0.0])
 
         # Simulation
         self._life  = 0.0
-        self._drag  = 1.0
+        self._drag  = 0.98
         self._decay = False
 
         # Graphics
         self._rgb     = (1.0, 1.0, 1.0)
-        self._opacity = 0.0
         self._batch = batch
         self._texture = img.get_texture()
-        self._group = SpriteGroup(self._texture, GL_SRC_ALPHA, GL_DST_ALPHA)
+        self._group = SpriteGroup(self._texture, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         self._create_vertex_list()
         self.callback = None
         self.is_alive = Particle._is_alive
 
     def _create_vertex_list(self):
         self._vertex_list = self._batch.add(4, GL_QUADS, self._group,
-            'v3f/dynamic', 'c4f', ('t3f', self._texture.tex_coords))
+            'v3f', 'c4f', ('t3f', self._texture.tex_coords))
         self._update_position()
         self._update_color()
 
-    def init_particle(self, x0, v0, color, is_alive=None, decay=False):
+    def init_particle(self, x0, v0, color, is_alive=None, decay=False, scale=0.1):
         self._x = x0
         self._vel = v0
         self._decay = decay
-        self._opacity = 1.0
+        self._life = 1.0
+        self._rgb = color
+        self._scale = scale
         if decay:
+            self._group.blend_dest = GL_DST_ALPHA
             self._fade = 0.2  +  0.8 * random.random()
             self._drag = 0.04 + 0.06 * random.random()
+        else:
+            self._group.blend_dest = GL_ONE_MINUS_SRC_ALPHA
         if is_alive is not None:
             self.is_alive = is_alive
         else:
             self.is_alive = Particle._is_alive
+    
+    def reset(self):
+        self._life = 0.0
+        self._x    = np.array([0.0, 0.0, 0.0])
+        self._vel  = np.array([0.0, 0.0, 0.0])
+        self._update_position()
+        self._update_color()
 
     def _update_position(self):
-        self._vertex_list.vertices[:] = (self._x + offset_l).flatten()
+        if self._life > 0:
+            self._vertex_list.vertices[:] = (self._x / unit + offset_l * self._scale).flatten()
+        else:
+            self._vertex_list.vertices[:] = (0, 0, 0) * 4
+        
 
     def _update_color(self):
         r, g, b = self._rgb
-        self._vertex_list.colors[:] = [r, g, b, self._opacity] * 4
+        self._vertex_list.colors[:] = [r, g, b, self._life] * 4
 
     def update(self, dt):
         if self.is_alive(self._x, self._vel, self._life):
@@ -94,34 +110,33 @@ class Particle:
                 # Apply drag
                 self._vel *= (1 - self._drag * dt)
                 self._life -= self._fade * dt
-                self._opacity = self._life
             # Apply Gravity
             self._vel += self._grav * dt
-            self._update_position()
-            self._update_color()
         else:
             self._life = 0.0
-            self._opacity = 0.0
-            self._update_color()
             self.is_alive = Particle._is_alive
+        self._update_position()
+        self._update_color()
     
     @staticmethod
     def _is_alive(x, vel, life):
         return life > 0
 
 
+
 class Firework:
-    def __init__(self, id, particles):
+    def __init__(self, particles):
         # Generate
         start = np.array([
             random.uniform(-half_side, half_side),
             0,
             random.uniform(-half_side, half_side)
         ]) + center
+        start *= unit
 
         # Generate launch vector
         # Spherical coordinates
-        rho = random.uniform(5,6)
+        rho = random.uniform(40, 70)
         theta = 0.25 * random.random() * math.pi / 2
         phi = random.random() * math.pi * 2
         # Rho projected onto the xz plane
@@ -136,45 +151,49 @@ class Firework:
         color = random.choice(COLORS)
 
         self.particles = particles
-        self.id = id
         # Figure out way to do callback
-        def is_alive(X, V, life):
-            return X[1] < 2.5
-        self.particles[0].init_particle(start, v0, color, is_alive, self.gen_callback())
+        def is_alive(x, vel, life):
+            return x[1] < 60 or vel[1] <= 0
+        self.particles[0].init_particle(start, v0, color, is_alive, scale=0.05)
         self.exploded = False
         self.done = False
-
-    def gen_callback(self):
-        def firework_fizzle(self):
-            self.num_particles -= 1
-            if self.num_particles <= 0:
-                self.done = True
-
-        def firework_explode(self):
-            # Choose a random explosion color
-            color = random.choice(COLORS)
-            # Firework explodes into 100 particles
-            self.num_particles = random.randint(15, 71)
-            for i in range(self.num_particles):
-                # Generate random particle speed
-                speed = random.uniform(3,6)
-                # Rate of particle decay is proportional to particle speed
-                decay = speed / 40.0
-                # Start at same x position as firework
-                X0 = np.copy(self.X)
-                # Initial velocity is random ve
-                v0 = np.random.uniform(-0.5, 0.5, 3) * speed + self.V
-                self.particles[i].init_particle(X0, v0, color, lambda: firework_fizzle(self), True)
-            self.exploded = True
-        return lambda: firework_explode(self)
     
+    def firework_fizzle(self):
+        self.particles_done += 1
+        if self.num_particles == self.particles_done:
+            self.done = True
+    
+    def firework_explode(self):
+        x   = self.particles[0]._x
+        vel = self.particles[0]._x
+        # Choose a random explosion color
+        color = random.choice(COLORS)
+        # Firework explodes into 100 particles
+        self.num_particles = random.randint(30, 71)
+        self.particles_done = 0
+        for i in range(self.num_particles):
+            # Generate random particle speed
+            speed = random.uniform(20, 60)
+            # Rate of particle decay is proportional to particle speed
+            decay = speed / 400.0
+            # Start at same x position as firework
+            x0 = np.copy(x)
+            # Initial velocity is random ve
+            vel0 = np.random.uniform(-0.5, 0.5, 3) * speed + vel * 0.15
+            self.particles[i].init_particle(x0, vel0, color, decay=True, scale=0.075)
+        self.exploded = True
+
     def update(self, dt):
         if not self.done:
             if not self.exploded:
                 self.particles[0].update(dt)
+                if self.particles[0]._life <= 0.0:
+                    self.firework_explode()
             else:
                 for i in range(self.num_particles):
                     self.particles[i].update(dt)
+                    if self.particles[i]._life <= 0.0:
+                        self.firework_fizzle()
 
 
 class Window(pyglet.window.Window):
@@ -213,7 +232,7 @@ class Window(pyglet.window.Window):
         try:
             i = self.inactive.pop()
             batch, particles, _ = self.particles[i]
-            self.particles[i][2] = Firework(i, particles)
+            self.particles[i][2] = Firework(particles)
             return True
         except Exception as e:
             return False
@@ -236,10 +255,9 @@ class Window(pyglet.window.Window):
         glShadeModel(GL_SMOOTH)
 
         # Randomly spawn fireworks
-        if self.frame % random.randint(30, 51) == 1:
+        if self.frame % random.randint(40, 61) == 1:
             self.new_firework()
-        
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
+
         # Draw the landscape
         self.launchpad.draw()
 
@@ -248,11 +266,15 @@ class Window(pyglet.window.Window):
         glDisable(GL_LIGHTING)
         glDisable(GL_COLOR_MATERIAL)
 
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
         # Render particles
         for i in range(self.__max_fireworks):
             if i not in self.inactive:
-                self.particles[i][0].draw()
+                batch, _, fw = self.particles[i]
+                if fw.exploded:
+                    glDisable(GL_DEPTH_TEST)
+                batch.draw()
+                if fw.exploded:
+                    glEnable(GL_DEPTH_TEST)
 
     def update(self, dt):
         global rotation
@@ -262,6 +284,9 @@ class Window(pyglet.window.Window):
             if i not in self.inactive:
                 self.particles[i][2].update(dt)
                 if self.particles[i][2].done:
+                    for particle in self.particles[i][1]:
+                        particle.reset()
+                    self.inactive.add(i)
                     self.particles[i][2] = None
         rotation += self.rate * dt
         if rotation > 2 * math.pi:
