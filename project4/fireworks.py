@@ -2,6 +2,7 @@
 
 from pyglet.gl import *
 from pyglet.window import key
+from pyglet.sprite import SpriteGroup
 import pywavefront as wf
 import numpy as np
 import random
@@ -15,17 +16,11 @@ COLORS = [(1.0,0.5,0.5),(1.0,0.75,0.5),(1.0,1.0,0.5),(0.75,1.0,0.5),
 lightfv = ctypes.c_float * 4
 
 offset = np.array([
-    [ 1,  1, 0],
-    [-1,  1, 0],
+    [-1, -1, 0],
     [ 1, -1, 0],
-    [-1, -1, 0]
+    [ 1,  1, 0],
+    [-1,  1, 0]
 ]) * 0.4
-texture_coords = (
-    1, 1,
-    0, 1,
-    1, 0,
-    0, 0
-)
 offset_l = np.copy(offset)
 
 half_side = 0.1
@@ -43,61 +38,75 @@ def update_rot():
     offset_l = (rotation_m * offset.T).T.A
 update_rot()
 
-sprite = pyglet.resource.image('Particle.png')
-sprite_group = pyglet.sprite.SpriteGroup(sprite.texture, GL_SRC_ALPHA, GL_DST_ALPHA)
-
-
 class Particle:
-    def __init__(self, batch):
-        self.life = 0.0
-        self.drag = 1.0
-        self.decay = False
-        self.g = np.array([0, -0.98, 0])
-        self.vertex_list = batch.add(
-            4, GL_TRIANGLE_STRIP, sprite_group,
-            'v3f', 'c4f', 't2f'
-        )
-        self.X = np.array([0, 0, 0])
-        self.V = np.array([0, 0, 0])
-        self.vertex_list.colors         = (1, 1, 1, 0) * 4
-        self.vertex_list.texture_coords = texture_coords
-        self.callback = None
-        self.is_alive = self._is_alive
+    def __init__(self, img, batch):
+        # Physics
+        self._x = np.array([0, 0, 0])
+        self._vel = np.array([0, 0, 0])
+        self._grav = np.array([0, -0.98, 0])
 
-    def init_particle(self, x0, v0, color, is_alive=None, callback=None, decay=False):
-        self.X = x0
-        self.V = v0
-        self.decay = decay
-        if callback is not None:
-            self.callback = callback
+        # Simulation
+        self._life  = 0.0
+        self._drag  = 1.0
+        self._decay = False
+
+        # Graphics
+        self._rgb     = (1.0, 1.0, 1.0)
+        self._opacity = 0.0
+        self._batch = batch
+        self._texture = img.get_texture()
+        self._group = SpriteGroup(self._texture, GL_SRC_ALPHA, GL_DST_ALPHA)
+        self._create_vertex_list()
+        self.callback = None
+        self.is_alive = Particle._is_alive
+
+    def _create_vertex_list(self):
+        self._vertex_list = self._batch.add(4, GL_QUADS, self._group,
+            'v3f/dynamic', 'c4f', ('t3f', self._texture.tex_coords))
+        self._update_position()
+        self._update_color()
+
+    def init_particle(self, x0, v0, color, is_alive=None, decay=False):
+        self._x = x0
+        self._vel = v0
+        self._decay = decay
+        self._opacity = 1.0
         if decay:
-            self.fade = 0.2  +  0.8 * random.random()
-            self.drag = 0.04 + 0.06 * random.random()
+            self._fade = 0.2  +  0.8 * random.random()
+            self._drag = 0.04 + 0.06 * random.random()
         if is_alive is not None:
             self.is_alive = is_alive
         else:
             self.is_alive = Particle._is_alive
 
+    def _update_position(self):
+        self._vertex_list.vertices[:] = (self._x + offset_l).flatten()
+
+    def _update_color(self):
+        r, g, b = self._rgb
+        self._vertex_list.colors[:] = [r, g, b, self._opacity] * 4
 
     def update(self, dt):
-        if self.is_alive(self.X, self.V, self.life):
+        if self.is_alive(self._x, self._vel, self._life):
             # Update position using velocity
-            self.X += self.V * dt
-            if self.decay:
+            self._x += self._vel * dt
+            if self._decay:
                 # Apply drag
-                self.V *= (1 - self.drag * dt)
-                self.life -= self.fade * dt
-                self.vertex_list.colors[3::4] = [self.life] * 4
+                self._vel *= (1 - self._drag * dt)
+                self._life -= self._fade * dt
+                self._opacity = self._life
             # Apply Gravity
-            self.V += self.g * dt
-            self.vertex_list.vertices[0:12] = (self.X + offset_l).flatten()
+            self._vel += self._grav * dt
+            self._update_position()
+            self._update_color()
         else:
-            self.vertex_list.colors[3::4] = [0, 0, 0, 0]
-            self.life = 0
+            self._life = 0.0
+            self._opacity = 0.0
+            self._update_color()
             self.is_alive = Particle._is_alive
     
     @staticmethod
-    def _is_alive(X, V, life):
+    def _is_alive(x, vel, life):
         return life > 0
 
 
@@ -185,9 +194,10 @@ class Window(pyglet.window.Window):
         self.X0 = np.array([[0.0], [cam_h], [-cam_r]])
         self.center = center.tolist()
         self.particles = [None] * self.__max_fireworks
+        self.sprite = pyglet.image.load('Particle.png')
         for i in range(self.__max_fireworks):
             batch = pyglet.graphics.Batch()
-            particles = [Particle(batch) for i in range(self.__max_particles)]
+            particles = [Particle(self.sprite, batch) for i in range(self.__max_particles)]
             self.particles[i] = [batch, particles, None]
             self.inactive.add(i)
 
@@ -204,10 +214,8 @@ class Window(pyglet.window.Window):
             i = self.inactive.pop()
             batch, particles, _ = self.particles[i]
             self.particles[i][2] = Firework(i, particles)
-            #print("ADDED", i)
             return True
         except Exception as e:
-            #print(e)
             return False
 
     def on_draw(self):
@@ -230,7 +238,8 @@ class Window(pyglet.window.Window):
         # Randomly spawn fireworks
         if self.frame % random.randint(30, 51) == 1:
             self.new_firework()
-
+        
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
         # Draw the landscape
         self.launchpad.draw()
 
@@ -239,6 +248,7 @@ class Window(pyglet.window.Window):
         glDisable(GL_LIGHTING)
         glDisable(GL_COLOR_MATERIAL)
 
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL)
         # Render particles
         for i in range(self.__max_fireworks):
             if i not in self.inactive:
