@@ -44,7 +44,7 @@ class Particle:
         # Physics
         self._x    = np.array([0.0,   0.0, 0.0])
         self._vel  = np.array([0.0,   0.0, 0.0])
-        self._grav = np.array([0.0, -15.0, 0.0])
+        self._grav = np.array([0.0, -20.0, 0.0])
 
         # Simulation
         self._life  = 0.0
@@ -139,7 +139,7 @@ class Firework:
 
         # Generate launch vector
         # Spherical coordinates
-        rho = random.uniform(40, 70)
+        rho = random.uniform(55, 70)
         theta = 0.35 * random.random() * math.pi / 2
         phi = random.random() * math.pi * 2
         # Rho projected onto the xz plane
@@ -156,8 +156,8 @@ class Firework:
         self.particles = particles
         # Figure out way to do callback
         def is_alive(x, vel, life):
-            return x[1] < 60 and vel[1] > 10
-        self.particles[0].init_particle(start, v0, color, is_alive, scale=0.05)
+            return x[1] < 60 and vel[1] > 30
+        self.particles[0].init_particle(start, v0, color, is_alive, scale=0.025)
         self.exploded = False
         self.done = False
         self.timeout = -1
@@ -173,7 +173,7 @@ class Firework:
         # Choose a random explosion color
         color = random.choice(COLORS)
         # Firework explodes into 100 particles
-        self.num_particles = random.randint(30, 71)
+        self.num_particles = random.randint(30, Window._max_particles)
         self.particles_done = 0
         decay = random.uniform(0.4, 1.2)
         for i in range(self.num_particles):
@@ -183,7 +183,8 @@ class Firework:
             x0 = np.copy(x)
             # Initial velocity is random ve
             vel0 = np.random.uniform(-0.5, 0.5, 3) * speed + vel * 0.15
-            self.particles[i].init_particle(x0, vel0, color, decay=decay, scale=0.075)
+            scale = 2.25 / self.num_particles
+            self.particles[i].init_particle(x0, vel0, color, decay=decay, scale=scale)
         self.exploded = True
 
     def update(self, dt):
@@ -204,8 +205,8 @@ class Firework:
 
 
 class Window(pyglet.window.Window):
-    __max_fireworks = 10
-    __max_particles = 100
+    _max_fireworks = 10
+    _max_particles = 70
     def __init__(self, *args,**kwargs):
         super(Window, self).__init__(*args,**kwargs)
         self.set_minimum_size(640, 480)
@@ -220,11 +221,11 @@ class Window(pyglet.window.Window):
         self.rate = 6.0 * (math.pi / 180)
         self.X0 = np.array([[0.0], [cam_h], [-cam_r]])
         self.center = center.tolist()
-        self.particles = [None] * self.__max_fireworks
+        self.particles = [None] * Window._max_fireworks
         self.sprite = pyglet.image.load('Particle.png')
-        for i in range(self.__max_fireworks):
+        for i in range(Window._max_fireworks):
             batch = pyglet.graphics.Batch()
-            particles = [Particle(self.sprite, batch) for i in range(self.__max_particles)]
+            particles = [Particle(self.sprite, batch) for i in range(Window._max_particles)]
             self.particles[i] = [batch, particles, None]
             self.inactive.add(i)
 
@@ -279,7 +280,7 @@ class Window(pyglet.window.Window):
         glDisable(GL_COLOR_MATERIAL)
 
         # Render particles
-        for i in range(self.__max_fireworks):
+        for i in range(Window._max_fireworks):
             if i not in self.inactive:
                 batch, _, fw = self.particles[i]
                 if fw.exploded:
@@ -292,7 +293,7 @@ class Window(pyglet.window.Window):
         global rotation
         global rotation_m
         self.frame += 1
-        for i in range(self.__max_fireworks):
+        for i in range(Window._max_fireworks):
             if i not in self.inactive:
                 self.particles[i][2].update(dt)
                 if self.particles[i][2].done:
