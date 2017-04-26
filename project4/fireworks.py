@@ -42,9 +42,9 @@ update_rot()
 class Particle:
     def __init__(self, img, batch):
         # Physics
-        self._x    = np.array([0.0,  0.0,  0.0])
-        self._vel  = np.array([0.0,  0.0,  0.0])
-        self._grav = np.array([0.0, -9.8,  0.0])
+        self._x    = np.array([0.0,   0.0, 0.0])
+        self._vel  = np.array([0.0,   0.0, 0.0])
+        self._grav = np.array([0.0, -15.0, 0.0])
 
         # Simulation
         self._life  = 0.0
@@ -66,17 +66,17 @@ class Particle:
         self._update_position()
         self._update_color()
 
-    def init_particle(self, x0, v0, color, is_alive=None, decay=False, scale=0.1):
+    def init_particle(self, x0, v0, color, is_alive=None, decay=0.0, scale=0.1):
         self._x = x0
         self._vel = v0
-        self._decay = decay
+        self._decay = decay > 0
         self._life = 1.0
         self._rgb = color
         self._scale = scale
-        if decay:
+        if self._decay:
             self._group.blend_dest = GL_DST_ALPHA
-            self._fade = 0.2  +  0.8 * random.random()
-            self._drag = 0.04 + 0.06 * random.random()
+            self._fade = decay
+            self._drag = 0.06 + 0.06 * random.random()
         else:
             self._group.blend_dest = GL_ONE_MINUS_SRC_ALPHA
         if is_alive is not None:
@@ -93,7 +93,10 @@ class Particle:
 
     def _update_position(self):
         if self._life > 0:
-            self._vertex_list.vertices[:] = (self._x / unit + offset_l * self._scale).flatten()
+            scale = self._scale
+            if self._decay:
+                scale *= self._life
+            self._vertex_list.vertices[:] = (self._x / unit + offset_l * scale).flatten()
         else:
             self._vertex_list.vertices[:] = (0, 0, 0) * 4
         
@@ -109,7 +112,7 @@ class Particle:
             if self._decay:
                 # Apply drag
                 self._vel *= (1 - self._drag * dt)
-                self._life -= self._fade * dt
+                self._life -= dt / self._fade
             # Apply Gravity
             self._vel += self._grav * dt
         else:
@@ -120,7 +123,7 @@ class Particle:
     
     @staticmethod
     def _is_alive(x, vel, life):
-        return life > 0
+        return life > 0.01
 
 
 
@@ -137,7 +140,7 @@ class Firework:
         # Generate launch vector
         # Spherical coordinates
         rho = random.uniform(40, 70)
-        theta = 0.25 * random.random() * math.pi / 2
+        theta = 0.35 * random.random() * math.pi / 2
         phi = random.random() * math.pi * 2
         # Rho projected onto the xz plane
         proj_r = math.sin(theta) * rho
@@ -153,15 +156,16 @@ class Firework:
         self.particles = particles
         # Figure out way to do callback
         def is_alive(x, vel, life):
-            return x[1] < 60 or vel[1] <= 0
+            return x[1] < 60 and vel[1] > 10
         self.particles[0].init_particle(start, v0, color, is_alive, scale=0.05)
         self.exploded = False
         self.done = False
+        self.timeout = -1
     
     def firework_fizzle(self):
         self.particles_done += 1
         if self.num_particles == self.particles_done:
-            self.done = True
+            self.timeout = 2
     
     def firework_explode(self):
         x   = self.particles[0]._x
@@ -171,16 +175,15 @@ class Firework:
         # Firework explodes into 100 particles
         self.num_particles = random.randint(30, 71)
         self.particles_done = 0
+        decay = random.uniform(0.4, 1.2)
         for i in range(self.num_particles):
             # Generate random particle speed
-            speed = random.uniform(20, 60)
-            # Rate of particle decay is proportional to particle speed
-            decay = speed / 400.0
+            speed = random.uniform(20, 60) / decay
             # Start at same x position as firework
             x0 = np.copy(x)
             # Initial velocity is random ve
             vel0 = np.random.uniform(-0.5, 0.5, 3) * speed + vel * 0.15
-            self.particles[i].init_particle(x0, vel0, color, decay=True, scale=0.075)
+            self.particles[i].init_particle(x0, vel0, color, decay=decay, scale=0.075)
         self.exploded = True
 
     def update(self, dt):
@@ -194,6 +197,10 @@ class Firework:
                     self.particles[i].update(dt)
                     if self.particles[i]._life <= 0.0:
                         self.firework_fizzle()
+        if self.timeout > 1:
+            self.timeout -= dt
+        elif self.timeout > 0:
+            self.done = True
 
 
 class Window(pyglet.window.Window):
@@ -201,7 +208,8 @@ class Window(pyglet.window.Window):
     __max_particles = 100
     def __init__(self, *args,**kwargs):
         super(Window, self).__init__(*args,**kwargs)
-        self.set_minimum_size(300, 200)
+        self.set_minimum_size(640, 480)
+        #pyglet.clock.set_fps_limit(60)
         pyglet.clock.schedule(self.update)
         self.frame = 0
         self.inactive = set()
@@ -243,11 +251,15 @@ class Window(pyglet.window.Window):
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         
-        glLightfv(GL_LIGHT0, GL_POSITION, lightfv(-30, 30, 30, 0.0))
-        glLightfv(GL_LIGHT0, GL_AMBIENT, lightfv(0.1, 0.2, 0.1, 1.0))
-        glLightfv(GL_LIGHT0, GL_DIFFUSE, lightfv(0.1, 0.3, 0.1, 1.0))
-        glLightfv(GL_LIGHT0, GL_SPECULAR, lightfv(0.3, 0.3, 0.3, 1.0))
+        glLightfv(GL_LIGHT0, GL_POSITION, lightfv(-4.0, 1.0, 6.0, 1.0 ))
+        glLightfv(GL_LIGHT0, GL_AMBIENT,  lightfv( 0.2, 0.4, 0.2, 1.0 ))
+        glLightfv(GL_LIGHT0, GL_DIFFUSE,  lightfv( 0.3, 0.9, 0.3, 1.0 ))
+        glLightfv(GL_LIGHT0, GL_SPECULAR, lightfv( 0.5, 0.5, 0.5, 1.0 ))
+        glLightf(GL_LIGHT0, GL_CONSTANT_ATTENUATION,  2.5  )
+        glLightf(GL_LIGHT0, GL_LINEAR_ATTENUATION,    0.75 )
+        glLightf(GL_LIGHT0, GL_QUADRATIC_ATTENUATION, 0.1  )
         glEnable(GL_LIGHT0)
+
         glEnable(GL_LIGHTING)
         glEnable(GL_COLOR_MATERIAL)
         glEnable(GL_DEPTH_TEST)
@@ -303,6 +315,6 @@ class Window(pyglet.window.Window):
 
 
 if __name__ =='__main__':
-    window = Window(width = 800, height = 600, caption = 'fireworks')
+    window = Window(caption = 'fireworks', width=1280, height=720)
     pyglet.app.run()
     
