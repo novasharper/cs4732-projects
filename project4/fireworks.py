@@ -42,9 +42,9 @@ update_rot()
 class Particle:
     def __init__(self, img, batch):
         # Physics
-        self._x    = np.array([0.0,   0.0, 0.0])
-        self._vel  = np.array([0.0,   0.0, 0.0])
-        self._grav = np.array([0.0, -15.0, 0.0])
+        self._x    = np.array([0.0,  0.0, 0.0])
+        self._vel  = np.array([0.0,  0.0, 0.0])
+        self._grav = np.array([0.0, -9.8, 0.0])
 
         # Simulation
         self._life  = 0.0
