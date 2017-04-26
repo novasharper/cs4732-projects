@@ -48,7 +48,7 @@ class Particle:
 
         # Simulation
         self._life  = 0.0
-        self._drag  = 0.98
+        self._drag  = 0.95
         self._decay = False
 
         # Graphics
@@ -173,7 +173,7 @@ class Firework:
         # Choose a random explosion color
         color = random.choice(COLORS)
         # Firework explodes into 100 particles
-        self.num_particles = random.randint(30, Window._max_particles)
+        self.num_particles = random.randint(10, Window._max_particles)
         self.particles_done = 0
         decay = random.uniform(0.4, 1.2)
         for i in range(self.num_particles):
@@ -205,12 +205,12 @@ class Firework:
 
 
 class Window(pyglet.window.Window):
+    """ Maximum number of fireworks displayed at one time """
     _max_fireworks = 10
+    """ Maximum number of particles per firework """
     _max_particles = 70
     def __init__(self, *args,**kwargs):
-        super(Window, self).__init__(*args,**kwargs)
-        self.set_minimum_size(640, 480)
-        #pyglet.clock.set_fps_limit(60)
+        super().__init__(*args,**kwargs)
         pyglet.clock.schedule(self.update)
         self.frame = 0
         self.inactive = set()
