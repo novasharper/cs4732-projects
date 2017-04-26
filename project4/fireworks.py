@@ -29,6 +29,7 @@ unit = 50.0
 cam_h = 0.75
 cam_r = 4.0
 rotation = 0
+
 def update_rot():
     global offset_l, rotation_m
     rotation_m = np.matrix([
