@@ -10,27 +10,39 @@ import random
 import math
 import ctypes
 
+# Firework colors
 COLORS = [(1.0,0.5,0.5),(1.0,0.75,0.5),(1.0,1.0,0.5),(0.75,1.0,0.5),
           (0.5,1.0,0.5),(0.5,1.0,0.75),(0.5,1.0,1.0),(0.5,0.75,1.0),
           (0.5,0.5,1.0),(0.75,0.5,1.0),(1.0,0.5,1.0),(1.0,0.5,0.75)]
 
+# Floating Point vector type used for glLightfv functions
 lightfv = ctypes.c_float * 4
 
+# Offsets for particle vertices
 offset = array([
     [-0.5, -0.5, 0.0],
     [ 0.5, -0.5, 0.0],
     [ 0.5,  0.5, 0.0],
     [-0.5,  0.5, 0.0]
 ])
+# Offsets rotated so particle can face camera
 offset_l = copy(offset)
 
+# 1/2 the side length of launch pad
 half_side = 0.1
+# Firework launch pad location
 center = array([-0.5, 0.0, -1.0])
+# Up vector (for camera)
 up = [0.0, 1.0, 0.0]
+# Size of one 'unit' in OpenGL space (1 opengl unit = 50 firework units)
 unit = 50.0
+# Camera Y position
 cam_h = 0.75
+# Camera distance from center along XZ-plane
 cam_r = 4.0
+# Camera rotation around the Y-axis
 rotation = 0
+# Update rotation matrix for camera position and particle vertex offsets
 def update_rot():
     global offset_l, rotation_m
     rotation_m = matrix([
@@ -42,6 +54,11 @@ def update_rot():
 update_rot()
 
 class Particle:
+    """Particle Controller
+
+    This class controls particles. It computes updates to the particle's state
+    and updates the Vertex List associated with the particle.
+    """
     def __init__(self, img, batch):
         # Physics
         self._x    = array([0.0,   0.0, 0.0])
@@ -70,6 +87,7 @@ class Particle:
 
     def init_particle(self, x0, v0, color, is_alive=None, decay=0.0, scale=0.2):
         """Initialize particle
+        
         Args:
             x0 (numpy.array 1x3): Initial particle location
             v0 (numpy.array 1x3): Initial particle velocity
