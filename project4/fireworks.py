@@ -1,4 +1,15 @@
 #!/bin/env python3
+"""
+Module         : fireworks.py
+Author         : Patrick Long
+Email          : pllong@wpi.edu
+Course         : CS 4732
+
+Description    : Simulate a fireworks display using
+                 a simplistic particle engine
+
+Date           : 2017/04/28
+"""
 
 from pyglet.gl import *
 from pyglet.window import key
