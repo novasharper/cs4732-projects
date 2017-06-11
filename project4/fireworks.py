@@ -158,7 +158,7 @@ class Firework:
     This class controls individual fireworks. It work by generating a random start position
     within a small square arount the center point. The launch vector of the firework is
     generated using spherical coordinates. First it chooses the launch speed (rho) in the
-    range [44, 70] Then, it chooses a theta <= 31.5 degrees from vertical. Finally, it
+    range [55, 70] Then, it chooses a theta <= 31.5 degrees from vertical. Finally, it
     chooses a phi in [0, 2pi) and converts to cartesian coordinates.
 
     The firework explodes when it reaches a height >= 60 or a vertical velocity <= 30/s.
